@@ -1,2 +1,17 @@
-[default]
+[database]
+host = "127.0.0.1"
+port = 3306
+name = "test"
+username = "root"
+password = "root"
+
+[development]
 address = "0.0.0.0"
+port = 8000
+workers = 32
+keep_alive = 5
+read_timeout = 5
+write_timeout = 5
+log = "debug"
+#secret_key = [randomly generated at launch]
+limits = { forms = 32768 }
