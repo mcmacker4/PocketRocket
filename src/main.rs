@@ -2,71 +2,43 @@
 extern crate rocket;
 
 use std::error::Error;
+use std::sync::Arc;
 
 use figment::providers::{Format, Toml};
-use mysql::prelude::Queryable;
-use mysql::Pool;
-use rocket::{http::Status, Config, State};
-use serde::Deserialize;
+use rocket::{Config, State, Rocket, Build};
+use crate::api::ApiError;
+use crate::database::{Database, DatabaseConfig};
 
-#[get("/")]
-fn hello(db: &State<Database>) -> Result<String, (Status, &'static str)> {
-    if let Ok(mut conn) = db.pool.get_conn() {
-        if let Ok(Some(msg)) = conn.query_first("SELECT 'Hello from the Database!'") {
-            Ok(msg)
-        } else {
-            Err((Status::InternalServerError, "Query failed"))
-        }
-    } else {
-        Err((
-            Status::InternalServerError,
-            "Could not get connection to the database",
-        ))
-    }
+mod database;
+mod api;
+
+pub type AnyError = Box<dyn Error>;
+
+#[rocket::main]
+async fn main() {
+    let _ = rocket().launch().await;
 }
 
-#[launch]
-fn rocket() -> _ {
+/// Launches the Rocket application.
+fn rocket() -> Rocket<Build> {
     let figment = Config::figment().merge(Toml::file("Config.toml").nested());
-    let db_config = figment
-        .extract_inner::<DatabaseConfig>("database")
-        .expect("Database config not found");
+    let db_config = Arc::new(
+        figment
+            .extract_inner::<DatabaseConfig>("database")
+            .expect("Database config not found")
+    );
 
-    let db = connect_db(&db_config).expect("Could not connect to database");
+    let db = Database::connect(db_config).expect("Could not connect to database");
 
     rocket::custom(figment)
         .mount("/", routes![hello])
         .manage(db)
 }
 
-#[derive(Debug, Deserialize)]
-struct DatabaseConfig {
-    host: String,
-    port: u16,
-    name: String,
-    username: String,
-    password: String,
-}
+#[get("/")]
+fn hello(db: &State<Database>) -> Result<String, ApiError> {
+    let db_result: String = db.get_field("*SELECT 'Hello from the Database!'", ())?
+        .unwrap_or("Database not working".to_string());
 
-#[derive(Debug, Clone)]
-struct Database {
-    pool: Pool,
-}
-
-fn connect_db(db: &DatabaseConfig) -> Result<Database, Box<dyn Error>> {
-    let url = format!(
-        "mysql://{}:{}@{}:{}/{}",
-        db.username, db.password, db.host, db.port, db.name
-    );
-
-    println!("Connecting to database at: {}", url);
-
-    let pool = Pool::new(url.as_str())?;
-
-    let mut conn = pool.get_conn()?;
-
-    // Verify connection
-    conn.query_drop(r"SELECT 1")?;
-
-    Ok(Database { pool })
+    Ok(db_result)
 }
