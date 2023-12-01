@@ -1,11 +1,12 @@
 #[macro_use]
 extern crate rocket;
 
-use std::error::Error;
-use std::fs;
-use mysql::Pool;
+use figment::providers::{Format, Toml};
 use mysql::prelude::Queryable;
+use mysql::Pool;
+use rocket::Config;
 use serde::Deserialize;
+use std::error::Error;
 
 #[get("/")]
 fn hello() -> &'static str {
@@ -14,11 +15,14 @@ fn hello() -> &'static str {
 
 #[launch]
 fn rocket() -> _ {
-    let config = read_config().expect("Failed to read config");
-    connect_db(&config).expect("Failed to connect to db");
+    let figment = Config::figment().merge(Toml::file("Config.toml").nested());
+    let db = figment
+        .extract_inner::<DatabaseConfig>("database")
+        .expect("Database config not found");
 
-    rocket::build()
-        .mount("/", routes![hello])
+    connect_db(&db).expect("Could not connect to database");
+
+    rocket::custom(figment).mount("/", routes![hello])
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,22 +34,14 @@ struct DatabaseConfig {
     password: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct Config {
-    database: DatabaseConfig,
-}
+fn connect_db(db: &DatabaseConfig) -> Result<(), Box<dyn Error>> {
+    let url = format!(
+        "mysql://{}:{}@{}:{}/{}",
+        db.username, db.password, db.host, db.port, db.name
+    );
 
-fn read_config() -> Result<Config, Box<dyn Error>> {
-    let file = fs::read_to_string("Rocket.toml")?;
-    let config: Config = toml::from_str(&file)?;
-    println!("{:?}", config);
+    println!("Connecting to database at: {}", url);
 
-    Ok(config)
-}
-
-fn connect_db(config: &Config) -> Result<(), Box<dyn Error>> {
-    let db = &config.database;
-    let url = format!("mysql://{}:{}@{}:{}/{}", db.username, db.password, db.host, db.port, db.name);
     let pool = Pool::new(url.as_str())?;
 
     let mut conn = pool.get_conn()?;
@@ -56,7 +52,9 @@ fn connect_db(config: &Config) -> Result<(), Box<dyn Error>> {
             id int not null,
             amount int not null,
             name text
-        )")?;
+        )",
+    )?;
 
     Ok(())
 }
+
