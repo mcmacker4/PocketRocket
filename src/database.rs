@@ -1,10 +1,14 @@
 use std::collections::HashMap;
+use std::fs;
 use std::hash::Hash;
+use std::path::PathBuf;
 use std::sync::Arc;
 use mysql::{Params, Pool, Row};
 use mysql::prelude::{FromRow, FromValue, Queryable};
 use rocket::serde::Deserialize;
 use crate::AnyError;
+
+const DATABASE_NAME: &'static str = "pocket_rocket";
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -16,34 +20,133 @@ pub struct Database {
 pub struct DatabaseConfig {
     pub host: String,
     pub port: u16,
-    pub name: String,
     pub username: String,
     pub password: String,
+    pub migrations_path: Option<String>,
 }
 
 impl Database {
     /// Attempt to connect to the database
     pub fn connect(config: Arc<DatabaseConfig>) -> Result<Self, AnyError> {
+        {
+            let url = format!(
+                "mysql://{}:{}@{}:{}",
+                config.username, config.password, config.host, config.port
+            );
+
+            info!("Connecting to database at: {}", url);
+
+            let pool = Pool::new(url.as_str())?;
+            let mut conn = pool.get_conn()?;
+
+            // Create default database if it doesn't exist
+            conn.query_drop(r#"
+                create database if not exists pocket_rocket
+                    default character set utf8mb4
+                    collate utf8mb4_unicode_ci"#
+            )?;
+
+            conn.query_drop(r#"
+                create table if not exists pocket_rocket.migrations
+                (
+                    id         int primary key auto_increment comment "Unique migration ID",
+                    filename   varchar(255) not null comment "File name of the migration",
+                    version    int unique   not null comment "Version of the migration",
+                    created_at timestamp default current_timestamp comment "Date and time when this row was inserted"
+                )"#
+            )?;
+        }
+
         let url = format!(
             "mysql://{}:{}@{}:{}/{}",
-            config.username, config.password, config.host, config.port, config.name
+            config.username, config.password, config.host, config.port, DATABASE_NAME
         );
 
-        println!("Connecting to database at: {}", url);
-
         let pool = Pool::new(url.as_str())?;
-        let mut conn = pool.get_conn()?;
-
-        // Verify connection
-        conn.query_drop(r"SELECT 1")?;
 
         Ok(Database { pool, config })
     }
 
-    /// Execute a query that doesn't return any data
-    pub fn run(&self, query: &str) -> Result<(), AnyError> {
+    /// Execute all the migrations that haven't been executed yet
+    pub fn run_migrations(&mut self) -> Result<(), AnyError> {
+        let migrations_path_config = self.config.migrations_path.clone().unwrap_or_else(|| "./schema".to_string());
+        let migrations_path = PathBuf::from(migrations_path_config);
+
+        info!("Running migrations from: {:?}", migrations_path);
+
+        if !self.table_exists("migrations")? {
+            let mut init = migrations_path.clone();
+            init.push("00_init.sql");
+
+            self.run_script(&init)?;
+        }
+
+        let mut migrations: Vec<(String, PathBuf, u32)> = vec![];
+
+        for dir_entry in fs::read_dir(migrations_path)? {
+            let dir_entry = dir_entry?;
+            let filename = dir_entry.file_name().to_string_lossy().to_string();
+
+            if !filename.contains("_") || !filename.ends_with(".sql") {
+                continue;
+            }
+
+            let full_path = dir_entry.path();
+            let version = filename.split('_').next().unwrap()
+                .parse::<u32>().expect("File name must start with a number");
+
+            migrations.push((filename, full_path, version));
+        }
+
+        migrations.sort_by(|a, b| a.2.cmp(&b.2));
+
+        let mut last_migration: u32 = self.get_field(
+            "select version from migrations order by version desc limit 1", ()
+        )?.unwrap_or(0);
+
+        for (filename, full_path, version) in migrations {
+            if version <= last_migration { continue; }
+
+            self.run_script(&full_path)?;
+            self.run("insert into migrations (version, filename) values (?, ?)", (version, filename))?;
+            last_migration = version;
+        }
+
+        Ok(())
+    }
+
+    // Check if a table exists
+    pub fn table_exists(&mut self, table_name: &'static str) -> Result<bool, AnyError> {
+        let result: Option<u32> = self.get_field(
+            "select 1 from information_schema.tables where table_schema = ? and table_name = ?",
+            (DATABASE_NAME, table_name)
+        )?;
+
+        Ok(result.is_some())
+    }
+
+    // Check if a table column exists
+    pub fn table_column_exists(&mut self, table_name: &'static str, column: &'static str) -> Result<bool, AnyError> {
+        let result: Option<u32> = self.get_field(
+            "select 1 from information_schema.columns where table_schema = ? and table_name = ? and column_name = ?",
+            (DATABASE_NAME, table_name, column)
+        )?;
+
+        Ok(result.is_some())
+    }
+
+    // Execute a script
+    pub fn run_script(&mut self, script_path: &PathBuf) -> Result<(), AnyError> {
         let mut conn = self.pool.get_conn()?;
-        conn.query_drop(query)?;
+        let script = fs::read_to_string(script_path)?;
+        conn.exec_drop(&script, ())?;
+        Ok(())
+    }
+
+    /// Execute a query that doesn't return any data
+    pub fn run<P: Into<Params>>(&self, query: &'static str, params: P) -> Result<(), AnyError> {
+        let mut conn = self.pool.get_conn()?;
+        conn.exec_drop(query, params)?;
         Ok(())
     }
 

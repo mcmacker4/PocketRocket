@@ -1,5 +1,7 @@
 // Remove warnings of unused code, they will be used in the future, no need to remove or comment them out.
 #![allow(dead_code)]
+// Don't allow results without unwrap or proper error handling
+#![deny(unused_must_use)]
 
 #[macro_use]
 extern crate rocket;
@@ -31,7 +33,9 @@ fn rocket() -> Rocket<Build> {
             .expect("Database config not found")
     );
 
-    let db = Database::connect(db_config).expect("Could not connect to database");
+    let mut db = Database::connect(db_config).expect("Could not connect to database");
+
+    db.run_migrations().expect("Could not run migrations");
 
     rocket::custom(figment)
         .mount("/", routes![hello])
@@ -40,7 +44,7 @@ fn rocket() -> Rocket<Build> {
 
 #[get("/")]
 fn hello(db: &State<Database>) -> Result<String, ApiError> {
-    let db_result: String = db.get_field("*SELECT 'Hello from the Database!'", ())?
+    let db_result: String = db.get_field("SELECT 'Hello'", ())?
         .unwrap_or("Database not working".to_string());
 
     Ok(db_result)
