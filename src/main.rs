@@ -1,28 +1,42 @@
 #[macro_use]
 extern crate rocket;
 
+use std::error::Error;
+
 use figment::providers::{Format, Toml};
 use mysql::prelude::Queryable;
 use mysql::Pool;
-use rocket::Config;
+use rocket::{http::Status, Config, State};
 use serde::Deserialize;
-use std::error::Error;
 
 #[get("/")]
-fn hello() -> &'static str {
-    "Hello, world!"
+fn hello(db: &State<Database>) -> Result<String, (Status, &'static str)> {
+    if let Ok(mut conn) = db.pool.get_conn() {
+        if let Ok(Some(msg)) = conn.query_first("SELECT 'Hello from the Database!'") {
+            Ok(msg)
+        } else {
+            Err((Status::InternalServerError, "Query failed"))
+        }
+    } else {
+        Err((
+            Status::InternalServerError,
+            "Could not get connection to the database",
+        ))
+    }
 }
 
 #[launch]
 fn rocket() -> _ {
     let figment = Config::figment().merge(Toml::file("Config.toml").nested());
-    let db = figment
+    let db_config = figment
         .extract_inner::<DatabaseConfig>("database")
         .expect("Database config not found");
 
-    connect_db(&db).expect("Could not connect to database");
+    let db = connect_db(&db_config).expect("Could not connect to database");
 
-    rocket::custom(figment).mount("/", routes![hello])
+    rocket::custom(figment)
+        .mount("/", routes![hello])
+        .manage(db)
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +48,12 @@ struct DatabaseConfig {
     password: String,
 }
 
-fn connect_db(db: &DatabaseConfig) -> Result<(), Box<dyn Error>> {
+#[derive(Debug, Clone)]
+struct Database {
+    pool: Pool,
+}
+
+fn connect_db(db: &DatabaseConfig) -> Result<Database, Box<dyn Error>> {
     let url = format!(
         "mysql://{}:{}@{}:{}/{}",
         db.username, db.password, db.host, db.port, db.name
@@ -46,15 +65,8 @@ fn connect_db(db: &DatabaseConfig) -> Result<(), Box<dyn Error>> {
 
     let mut conn = pool.get_conn()?;
 
-    // Let's create a table for payments.
-    conn.query_drop(
-        r"CREATE TABLE testing (
-            id int not null,
-            amount int not null,
-            name text
-        )",
-    )?;
+    // Verify connection
+    conn.query_drop(r"SELECT 1")?;
 
-    Ok(())
+    Ok(Database { pool })
 }
-
