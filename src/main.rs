@@ -1,3 +1,6 @@
+// Remove warnings of unused code, they will be used in the future, no need to remove or comment them out.
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate rocket;
 
