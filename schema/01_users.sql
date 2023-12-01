@@ -1,4 +1,4 @@
-# Users
+-- Users
 create table if not exists users
 (
     id            int primary key auto_increment comment "Unique user ID",
@@ -8,7 +8,7 @@ create table if not exists users
     modified_at   timestamp default current_timestamp on update current_timestamp comment "Date and time when this row was updated last time"
 );
 
-# Roles
+-- Roles
 create table if not exists roles
 (
     id          int primary key auto_increment comment "Unique user ID",
@@ -17,7 +17,7 @@ create table if not exists roles
     modified_at timestamp default current_timestamp on update current_timestamp comment "Date and time when this row was updated last time"
 );
 
-# Relation between users and roles
+-- Relation between users and roles
 create table if not exists role_of_user
 (
     user_id    int not null comment "User ID",
@@ -28,7 +28,7 @@ create table if not exists role_of_user
     constraint role_of_user_roles_id_fk foreign key (role_id) references roles (id)
 );
 
-# Sessions
+-- Sessions
 create table if not exists sessions
 (
     id         int primary key auto_increment comment "Unique session ID",

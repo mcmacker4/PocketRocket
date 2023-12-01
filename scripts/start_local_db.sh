@@ -32,7 +32,9 @@ docker run \
   --restart=unless-stopped \
   --log-driver local --log-opt max-size=10m \
   --env MARIADB_ROOT_PASSWORD=root \
-  --env MARIADB_DATABASE=test \
+  --env MARIADB_USER=pr \
+  --env MARIADB_PASSWORD=pr \
+  --env MARIADB_DATABASE=pocket_rocket \
   -p 3306:3306 \
   mariadb:latest
 

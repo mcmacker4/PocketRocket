@@ -1,11 +1,10 @@
 use std::io::Cursor;
-use mysql::serde_json;
-use mysql::serde_json::json;
 use rocket::http::Status;
-use rocket::serde::{Serialize, Deserialize};
-use rocket::request::Request;
-use rocket::response::{self, Response, Responder};
 use rocket::http::ContentType;
+use rocket::request::Request;
+use rocket::response::{self, Responder, Response};
+use rocket::serde::{Deserialize, Serialize};
+use serde_json::json;
 use crate::AnyError;
 
 #[derive(Debug, Serialize, Deserialize)]
