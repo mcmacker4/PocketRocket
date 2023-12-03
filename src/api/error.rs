@@ -1,11 +1,11 @@
-use std::io::Cursor;
-use rocket::http::Status;
+use crate::AnyError;
 use rocket::http::ContentType;
+use rocket::http::Status;
 use rocket::request::Request;
 use rocket::response::{self, Responder, Response};
 use rocket::serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::AnyError;
+use std::io::Cursor;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiError {
@@ -13,8 +13,23 @@ pub struct ApiError {
     pub message: String,
 }
 
+impl ApiError {
+    pub fn new(status: Status, message: String) -> Self {
+        Self { status, message }
+    }
+}
+
 impl From<AnyError> for ApiError {
     fn from(err: AnyError) -> Self {
+        ApiError {
+            status: Status::InternalServerError,
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
         ApiError {
             status: Status::InternalServerError,
             message: err.to_string(),

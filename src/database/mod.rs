@@ -1,41 +1,35 @@
-use std::sync::Arc;
+use rocket::{
+    fairing::{Fairing, Info, Kind},
+    Orbit, Rocket,
+};
+use rocket_db_pools::Database;
+use sqlx::migrate;
 
-use rocket::serde::Deserialize;
-use sqlx::MySqlPool;
+#[derive(Database)]
+#[database("pocket_rocket")]
+pub struct PocketDB(sqlx::MySqlPool);
 
-use crate::AnyError;
+pub struct PocketDBMigrationsFairing;
 
-#[derive(Debug, Clone)]
-pub struct Database {
-    pool: MySqlPool,
-    config: Arc<DatabaseConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DatabaseConfig {
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-    pub migrations_path: Option<String>,
-    pub database: String,
-}
-
-impl Database {
-    pub async fn connect(config: Arc<DatabaseConfig>) -> Result<Self, AnyError> {
-        let pool = MySqlPool::connect(&Self::connection_url(&config)).await?;
-        return Ok(Database { pool, config });
+#[rocket::async_trait]
+impl Fairing for PocketDBMigrationsFairing {
+    fn info(&self) -> Info {
+        Info {
+            name: "Database Migrations Fairing",
+            kind: Kind::Liftoff,
+        }
     }
 
-    fn connection_url(config: &DatabaseConfig) -> String {
-        format!(
-            "mysql://{}:{}@{}:{}/{}",
-            config.username, config.password, config.host, config.port, config.database
-        )
+    async fn on_liftoff(&self, rocket: &Rocket<Orbit>) {
+        println!("Running migrations fairing");
+        if let Some(db) = PocketDB::fetch(&rocket) {
+            println!("Running migrations");
+            migrate!("./schema")
+                .run(&**db)
+                .await
+                .expect("Could not run migrations");
+        } else {
+            println!("Could not find database state in rocket")
+        }
     }
-}
-
-pub async fn run_migrations(db: &mut Database) -> Result<(), AnyError> {
-    sqlx::migrate!("./schema").run(&db.pool).await?;
-    Ok(())
 }

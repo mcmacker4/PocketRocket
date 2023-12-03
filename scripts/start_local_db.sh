@@ -11,10 +11,10 @@ if docker ps | grep -q 'local-mariadb'; then
     exit 1
 fi
 
-if docker ps -all | grep -q 'local-mariadb'; then
-    echo "Existing container found, but its stopped, removing"
-    docker remove local-mariadb
-fi
+#if docker ps -all | grep -q 'local-mariadb'; then
+#    echo "Existing container found, but its stopped, removing"
+#    docker remove local-mariadb
+#fi
 
 # Start local mariadb container
 # --detach: Run container in background
@@ -27,9 +27,9 @@ fi
 # Use the latest mariadb image
 docker run \
   --detach \
+  --rm \
   --name local-mariadb \
   --network="bridge" \
-  --restart=unless-stopped \
   --log-driver local --log-opt max-size=10m \
   --env MARIADB_ROOT_PASSWORD=root \
   --env MARIADB_USER=pr \
@@ -37,5 +37,7 @@ docker run \
   --env MARIADB_DATABASE=pocket_rocket \
   -p 3306:3306 \
   mariadb:latest
+
+  # --restart=unless-stopped \
 
 echo "Done"

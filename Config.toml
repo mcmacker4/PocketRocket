@@ -6,9 +6,5 @@ keep_alive = 5
 #secret_key = [randomly generated at launch]
 limits = { forms = 32768 }
 
-[debug.database]
-host = "127.0.0.1"
-port = 3306
-username = "pr"
-password = "pr"
-database = "pocket_rocket"
+[debug.databases.pocket_rocket]
+url = "mysql://pr:pr@127.0.0.1:3306/pocket_rocket"
